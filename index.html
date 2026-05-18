@@ -179,7 +179,7 @@ body.sidebar-collapsed #main{margin-left:64px;}
   background:none;border:none;cursor:pointer;
   color:var(--muted);font-size:20px;padding:4px;
   line-height:1;transition:color 0.2s;
-  flex-shrink:0;
+  flex-shrink:0;align-items:center;
 }
 .topbar-toggle:hover{color:var(--text);}
 .topbar-breadcrumb{font-size:11px;color:var(--muted);font-family:var(--font-mono);letter-spacing:1px;white-space:nowrap;}
@@ -752,7 +752,7 @@ body.sidebar-collapsed #main{margin-left:64px;}
   }
   #sidebar.mobile-open{transform:translateX(0);}
   #sidebar-overlay{display:block;}
-  #sidebar-overlay.visible{opacity:1;pointer-events:all;}
+  #sidebar-overlay.visible{display:block;opacity:1;pointer-events:all;}
   #main{margin-left:0 !important;}
   .topbar-toggle{display:flex;}
   .search-wrap{display:none;}
@@ -4454,8 +4454,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Wait one tick so the existing init has registered ALL_PAGES & enhancedPages.
   setTimeout(() => {
     advInjectButtons();
-    // Pre-build all advanced pages (fast — content is tiny stub) so progress UI counts them.
+    // Pre-build all advanced pages so progress UI counts them.
     ADV_CLASSES.forEach(c => advBuildPage(c));
+    // Inject any already-loaded CMS advanced content into those pages
+    if(typeof window.renderAdvancedContent === 'function') window.renderAdvancedContent();
   }, 0);
 });
 </script>
@@ -4484,7 +4486,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const SUPABASE_URL  = "https://gsrdvmxkvadttyuahnqh.supabase.co";
-  const SUPABASE_KEY  = "sb_publishable_Je6wp48qfCc_Ie-t7O7IHQ_AYf-KeQS";
+  const SUPABASE_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzcmR2bXhrdmFkdHR5dWFobnFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTA1NTUsImV4cCI6MjA5NDQ4NjU1NX0._0LQ6YrKnGhctoOHxjDADzgriRsA1Elyuj1TEGugEQg";
   const ADMIN_EMAIL   = "solexgifttech@gmail.com"; // filled at login — we verify by session only
 
   // ── Supabase client ───────────────────────────────────────────
@@ -4498,6 +4500,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   window.__sg = { sb };
+
+  // Warn if the Supabase key looks wrong (valid anon keys are JWTs starting with eyJ)
+  if(!SUPABASE_KEY.startsWith('eyJ')){
+    console.error('[SolexGift] WARNING: SUPABASE_KEY looks invalid. Supabase anon/service keys are JWTs and must start with "eyJ". Please update SUPABASE_KEY in the script. Current value starts with: ' + SUPABASE_KEY.substring(0,12));
+  }
 
   const MONTHS      = Array.from({length:12},(_,i)=>i+1);
   const BLOCK_TYPES = ["explanation","example","code","dataset","quiz","exercise"];
@@ -4576,34 +4583,63 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // ── Render ADVANCED track items in a purple-tinted section ──────────
-      if(advancedItems.length > 0){
-        const advWrap = document.createElement('div');
-        advWrap.className = 'cms-advanced-wrap';
-        const advHeader = document.createElement('div');
-        advHeader.className = 'cms-advanced-header';
-        advHeader.textContent = 'Advanced Class — Published Content';
-        advWrap.appendChild(advHeader);
-        let lastChapter = null;
-        advancedItems.forEach(it=>{
-          if(it.chapter !== lastChapter){
-            if(lastChapter !== null){
-              const hr = document.createElement('hr');
-              hr.className = 'cms-chapter-divider';
-              advWrap.appendChild(hr);
-            }
-            const lbl = document.createElement('div');
-            lbl.className = 'cms-section-label';
-            lbl.textContent = 'Chapter ' + it.chapter;
-            advWrap.appendChild(lbl);
-            lastChapter = it.chapter;
-          }
-          advWrap.appendChild(buildBlock(it));
-        });
-        wrap.appendChild(advWrap);
-      }
+      // Advanced track items are intentionally NOT rendered here.
+      // They belong inside the Advanced Class pages (adv-mN).
+      // renderAdvancedContent() handles that separately.
 
       contentDiv.appendChild(wrap);
+    });
+  }
+
+  // ── Inject CMS advanced content into the Advanced Class pages ───────
+  window.renderAdvancedContent =
+  function renderAdvancedContent(){
+    // Remove previously injected CMS blocks from advanced pages
+    document.querySelectorAll('[data-cms-adv-injected]').forEach(el=>el.remove());
+
+    // Group advanced items by month number
+    const advByMonth = {};
+    allContent.filter(i=>i.track==='advanced').forEach(item=>{
+      const m = 'm' + item.month;
+      (advByMonth[m] = advByMonth[m] || []).push(item);
+    });
+
+    Object.keys(advByMonth).forEach(pid=>{
+      const contentEl = document.getElementById('adv-' + pid + '-content');
+      if(!contentEl) return;
+
+      const items = advByMonth[pid].sort((a,b)=>{
+        if(a.chapter!==b.chapter) return a.chapter-b.chapter;
+        return (a.topic||'').localeCompare(b.topic||'');
+      });
+
+      const wrap = document.createElement('div');
+      wrap.setAttribute('data-cms-adv-injected','1');
+      wrap.style.cssText = 'margin-top:32px;padding-top:24px;border-top:1px solid var(--border);';
+
+      const header = document.createElement('div');
+      header.style.cssText = 'font-family:var(--font-mono);font-size:10px;letter-spacing:3px;color:var(--purple);text-transform:uppercase;margin-bottom:16px;';
+      header.textContent = 'Published Content';
+      wrap.appendChild(header);
+
+      let lastChapter = null;
+      items.forEach(it=>{
+        if(it.chapter !== lastChapter){
+          if(lastChapter !== null){
+            const hr = document.createElement('hr');
+            hr.style.cssText = 'border:none;border-top:1px solid var(--border);margin:20px 0;';
+            wrap.appendChild(hr);
+          }
+          const lbl = document.createElement('div');
+          lbl.className = 'cms-section-label';
+          lbl.textContent = 'Chapter ' + it.chapter;
+          wrap.appendChild(lbl);
+          lastChapter = it.chapter;
+        }
+        wrap.appendChild(buildBlock(it));
+      });
+
+      contentEl.appendChild(wrap);
     });
   }
 
@@ -4662,17 +4698,34 @@ document.addEventListener('DOMContentLoaded', () => {
       const { data, error } = await sb
         .from('content')
         .select('*')
-        .order('month', { ascending: true });
-      if(error) throw error;
+        .order('month', { ascending: true })
+        .order('chapter', { ascending: true })
+        .order('topic',   { ascending: true });
+      if(error){
+        console.error('[SolexGift] Supabase load error:', error.message, error);
+        // Show a visible notice on every page content area so it's easy to spot
+        document.querySelectorAll('.page.active .content').forEach(el=>{
+          if(!el.querySelector('[data-cms-error]')){
+            const d=document.createElement('div');
+            d.setAttribute('data-cms-error','1');
+            d.style.cssText='background:#3a1a1a;border:1px solid #c0392b;border-radius:8px;padding:14px 18px;margin:16px 0;color:#e74c3c;font-size:13px;font-family:monospace';
+            d.textContent='[CMS] Failed to load content from database: '+error.message;
+            el.prepend(d);
+          }
+        });
+        throw error;
+      }
       allContent = data || [];
+      // Remove any previous error notices
+      document.querySelectorAll('[data-cms-error]').forEach(el=>el.remove());
       renderPublicContent();
+      renderAdvancedContent();
       if(document.getElementById('admin-overlay').classList.contains('open') && currentTab==='library'){
         renderLibrarySection();
       }
     } catch(err) {
-      // Silently ignore DataCloneError from Supabase internals — content still loads fine
       if(err && err.name === 'DataCloneError') return;
-      console.warn('CMS load failed:', err?.message || err);
+      console.warn('[SolexGift] CMS load failed:', err?.message || err);
     }
   }
 
@@ -5147,9 +5200,9 @@ ${rawText}`;
 
       // Strip any accidental markdown code fences
       const clean = formatted
-        .replace(/^\`\`\`html\s*/i, '')
-        .replace(/^\`\`\`\s*/i, '')
-        .replace(/\s*\`\`\`$/i, '')
+        .replace(/^```html\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
         .trim();
 
       // Update the textarea and form state
